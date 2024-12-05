@@ -15,7 +15,6 @@
 //       docker image rm -f neo4j-image
 
 use neo4rs::*;
-use std::error::Error;
 
 // Struct representing an employee with basic information
 struct Employee {
@@ -65,9 +64,9 @@ async fn main() -> Result<()> {
             "CREATE (e:Employee {employee_id: $id, name: $name, salary: $salary, region: $region})"
         )
             .param("id", employee.employee_id)
-            .param("name", &employee.name)
+            .param("name", &*employee.name)     // Dereference String to str
             .param("salary", employee.salary)
-            .param("region", &employee.region);
+            .param("region", &*employee.region); // Dereference String to str
 
         // Execute the query
         graph.run(query).await?;
