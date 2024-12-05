@@ -15,8 +15,14 @@
 //       docker image rm -f neo4j-image
 
 use neo4rs::*;
+use std::error::Error;
+mod app_schema_generator;
+use app_schema_generator::generate_app_puml;
+mod error;
+use error::AppError;
 
-// Struct representing an employee with basic information
+// Define the Employee struct to represent employee data
+// This struct maps directly to Neo4j node properties
 struct Employee {
     employee_id: i32,
     name: String,
@@ -24,31 +30,32 @@ struct Employee {
     region: String
 }
 
-// Implementation block for Employee struct
+// Implementation of Employee methods
 impl Employee {
-    // Print employee details in a formatted way
+    // Display employee information in a formatted way
     fn print(&self) {
         println!("{} {} {} {}", self.employee_id, self.name, self.salary, self.region);
     }
 }
 
+// Main async function using tokio runtime
 #[tokio::main]
-async fn main() -> Result<()> {
-    // Configure Neo4j connection
+async fn main() -> Result<(), AppError> {
+    // Set up Neo4j connection configuration
     let config = ConfigBuilder::default()
         .uri("bolt://localhost:7687")
-        .user("neo4j")         // Standard username
-        .password("password")  // Password from Dockerfile
-        .db("neo4j")          // Standard databas
+        .user("neo4j")
+        .password("password")
+        .db("neo4j")  // Use default database
         .build()?;
 
-    // Establish connection to Neo4j
+    // Create connection to Neo4j database
     let graph = Graph::connect(config).await?;
 
-    // Clear any existing Employee nodes to avoid duplicates
+    // Clean up: Remove any existing Employee nodes
     graph.run(query("MATCH (e:Employee) DELETE e")).await?;
 
-    // Create a vector of sample employees
+    // Create test data: Vector of Employee instances
     let employees = vec![
         Employee { employee_id: 1, name: String::from("Andy"),  salary: 25_000.0, region: String::from("South Wales") },
         Employee { employee_id: 2, name: String::from("Jayne"), salary: 35_000.0, region: String::from("South Wales") },
@@ -56,37 +63,39 @@ async fn main() -> Result<()> {
         Employee { employee_id: 4, name: String::from("Tom"),   salary: 55_000.0, region: String::from("London") }
     ];
 
-    // Create Employee nodes in Neo4j
+    // Insert employees into Neo4j database
     for employee in &employees {
-        // Construct Cypher query with parameters
+        // Create Cypher query with parameterized values for safety
         let query = query(
             "CREATE (e:Employee {employee_id: $id, name: $name, salary: $salary, region: $region})"
         )
             .param("id", employee.employee_id)
-            .param("name", &*employee.name)     // Dereference String to str
+            .param("name", &*employee.name)     // Convert String to &str for Neo4j
             .param("salary", employee.salary)
-            .param("region", &*employee.region); // Dereference String to str
+            .param("region", &*employee.region); // Convert String to &str for Neo4j
 
-        // Execute the query
+        // Execute the creation query
         graph.run(query).await?;
     }
 
-    // Retrieve all employees from Neo4j
+    // Retrieve all employees from database, ordered by ID
     let mut result = graph.execute(
         query("MATCH (e:Employee) RETURN e.employee_id, e.name, e.salary, e.region ORDER BY e.employee_id")
     ).await?;
 
-    // Process and print each employee
+    // Process query results and display each employee
     while let Some(row) = result.next().await? {
         let employee = Employee {
-            // Neo4j stores integers as i64, so we convert to i32
-            employee_id: row.get::<i64>("e.employee_id").unwrap() as i32,
+            employee_id: row.get::<i64>("e.employee_id").unwrap() as i32, // Convert Neo4j's i64 to i32
             name: row.get::<String>("e.name").unwrap(),
             salary: row.get::<f64>("e.salary").unwrap(),
             region: row.get::<String>("e.region").unwrap(),
         };
         employee.print();
     }
+
+    // Generate PlantUML diagram of application structure
+    generate_app_puml()?;
 
     Ok(())
 }
