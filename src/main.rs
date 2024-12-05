@@ -35,12 +35,11 @@ impl Employee {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Configure Neo4j connection
-    let uri = "bolt://localhost:7687";
     let config = ConfigBuilder::default()
-        .uri(uri)
-        .user("neo4j")
-        .password("password")
-        .db("neo4j")  // Use default database
+        .uri("bolt://localhost:7687")
+        .user("neo4j")         // Standard username
+        .password("password")  // Password from Dockerfile
+        .db("neo4j")          // Standard databas
         .build()?;
 
     // Establish connection to Neo4j
