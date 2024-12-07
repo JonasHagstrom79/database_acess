@@ -1,0 +1,13 @@
+[package]
+name = "frontend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+yew = { version = "0.20", features = ["csr"] }
+wasm-bindgen = "0.2.84"
+wasm-bindgen-futures = "0.4"  # Lägg till denna rad
+web-sys = "0.3.61"
+gloo-net = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }

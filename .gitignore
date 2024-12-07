@@ -1,3 +1,46 @@
-/target
-neo4j/data/
-neo4j/logs/
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Database
+/neo4j/data/
+/neo4j/logs/
+/neo4j/import/
+/neo4j/plugins/
+
+# Environment & Secrets
+.env
+.env.*
+*.secret
+config/local.toml
+config/production.toml
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Generated files
+/dist/
+/docs/
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+.temp/

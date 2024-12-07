@@ -1,17 +1,10 @@
-[package]
-name = "database_access"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "frontend",
+    "backend"
+]
+resolver = "2"  # Lägg till denna rad
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-neo4rs = "0.6.0"
-tokio = { version = "1.0", features = ["full"]}
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres"] }
-yew = "0.20"
-wasm-bindgen = "0.2"
-web-sys = "0.3"
-gloo-net = "0.2"  # För HTTP-anrop
+[workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

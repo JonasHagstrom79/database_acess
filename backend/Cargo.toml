@@ -1,0 +1,13 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+neo4rs = "0.6"
+tokio = { version = "1.0", features = ["full"] }
+axum = { version = "0.6", features = ["multipart"] }
+serde = { workspace = true }
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres"] }
+tower-http = { version = "0.4", features = ["cors"] }
+dotenv = "0.15"
