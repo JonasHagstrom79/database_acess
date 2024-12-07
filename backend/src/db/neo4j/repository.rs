@@ -6,7 +6,7 @@
 use neo4rs::*;
 use std::error::Error;
 use chrono::NaiveDate;
-use crate::models::person::{Person, Relationship};
+use crate::models::{Person, Relationship};
 
 /// Repository struct for Neo4j database operations
 pub struct Neo4jRepository {
@@ -45,7 +45,7 @@ impl Neo4jRepository {
     ///
     /// # Returns
     /// * `Result<String, Box<dyn Error>>` - The ID of the created person or error
-    pub async fn create_person(&self, person: &Person) -> Result<String, Box<dyn Error>> {
+    pub async fn create_person(&self, person: &Person) -> Result<String> {
         let query = query(
             "CREATE (p:Person {
                 first_name: $first_name,
@@ -83,7 +83,7 @@ impl Neo4jRepository {
     ///
     /// # Returns
     /// * `Result<Option<Person>, Box<dyn Error>>` - The person if found, None if not found, or error
-    pub async fn get_person(&self, id: &str) -> Result<Option<Person>, Box<dyn Error>> {
+    pub async fn get_person(&self, id: &str) -> Result<Option<Person>> {
         let query = query(
             "MATCH (p:Person) WHERE id(p) = $id
              RETURN p.first_name, p.middle_name, p.last_name, p.maiden_name,
@@ -119,7 +119,7 @@ impl Neo4jRepository {
     ///
     /// # Returns
     /// * `Result<(), Box<dyn Error>>` - Success or error
-    pub async fn add_relationship(&self, rel: &Relationship) -> Result<(), Box<dyn Error>> {
+    pub async fn add_relationship(&self, rel: &Relationship) -> Result<()> {
         match rel {
             Relationship::Parent { from_id, to_id } => {
                 let query = query(
@@ -159,7 +159,7 @@ impl Neo4jRepository {
     ///
     /// # Returns
     /// * `Result<Vec<Person>, Box<dyn Error>>` - List of related persons or error
-    pub async fn get_family_tree(&self, person_id: &str) -> Result<Vec<Person>, Box<dyn Error>> {
+    pub async fn get_family_tree(&self, person_id: &str) -> Result<Vec<Person>> {
         let query = query(
             "MATCH (p:Person)-[*1..3]-(relative:Person)
              WHERE id(p) = $person_id
