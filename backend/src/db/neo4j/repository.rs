@@ -1,26 +1,14 @@
-//! Neo4j Repository Implementation
-//!
-//! This module provides the core functionality for interacting with the Neo4j graph database,
-//! including CRUD operations for persons and relationship management in a genealogy context.
-
 use neo4rs::*;
 use std::error::Error;
-use chrono::NaiveDate;
 use crate::models::{Person, Relationship};
+use std::fs::File;
+use csv::Reader;
 
-/// Repository struct for Neo4j database operations
 pub struct Neo4jRepository {
     graph: Graph,
 }
 
 impl Neo4jRepository {
-    /// Creates a new Neo4j repository instance
-    ///
-    /// # Arguments
-    /// * `uri` - Connection URI for the Neo4j database
-    ///
-    /// # Returns
-    /// * `Result<Self, Box<dyn Error>>` - Repository instance or error
     pub async fn new(uri: String) -> std::result::Result<Self, Box<dyn Error>> {
         let config = ConfigBuilder::default()
             .uri(uri)
@@ -33,21 +21,173 @@ impl Neo4jRepository {
         Ok(Self { graph })
     }
 
-    /// Returns a reference to the underlying graph connection
     pub async fn get_graph(&self) -> &Graph {
         &self.graph
     }
 
-    /// Creates a new person in the database
-    ///
-    /// # Arguments
-    /// * `person` - Person struct containing the individual's information
-    ///
-    /// # Returns
-    /// * `Result<String, Box<dyn Error>>` - The ID of the created person or error
+    // CRUD-operationer för Person
     pub async fn create_person(&self, person: &Person) -> Result<String> {
         let query = query(
             "CREATE (p:Person {
+            firstName: $firstName,
+            middleName: $middleName,
+            lastName: $lastName,
+            maidenName: $maidenName,
+            nickName: $nickName,
+            fullName: $fullName,
+            born: $born,
+            deceased: $deceased,
+            info: $info
+        }) RETURN id(p)"
+        )
+            .param("firstName", person.first_name.as_str())
+            .param("lastName", person.last_name.as_str())
+            .param("fullName", person.full_name.as_str())
+            .param("middleName", person.middle_name.as_deref().unwrap_or(""))
+            .param("maidenName", person.maiden_name.as_deref().unwrap_or(""))
+            .param("nickName", person.nick_name.as_deref().unwrap_or(""))
+            .param("born", person.born.as_deref().unwrap_or(""))
+            .param("deceased", person.deceased.as_deref().unwrap_or(""))
+            .param("info", person.info.as_deref().unwrap_or(""));
+
+        let mut result = self.graph.execute(query).await?;
+        let row = result.next().await?.unwrap();
+        let id: i64 = row.get("id(p)").unwrap();
+
+        Ok(id.to_string())
+    }
+
+    pub async fn get_person(&self, id: &str) -> Result<Option<Person>> {
+        let query = query(
+            "MATCH (p:Person) WHERE id(p) = $id 
+         RETURN p.firstName, p.middleName, p.lastName, p.maidenName,
+                p.nickName, p.fullName, p.born, p.deceased, p.info"
+        )
+            .param("id", id);
+
+        let mut result = self.graph.execute(query).await?;
+
+        if let Some(row) = result.next().await? {
+            Ok(Some(Person {
+                first_name: row.get("p.firstName").unwrap_or_default(),
+                middle_name: row.get("p.middleName"),
+                last_name: row.get("p.lastName").unwrap_or_default(),
+                maiden_name: row.get("p.maidenName"),
+                nick_name: row.get("p.nickName"),
+                full_name: row.get("p.fullName").unwrap_or_default(),
+                born: row.get("p.born"),
+                deceased: row.get("p.deceased"),
+                info: row.get("p.info"),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // Relationshantering
+    pub async fn add_relationship(&self, rel: &Relationship) -> Result<()> {
+        match rel {
+            Relationship::Parent { from_id, to_id } => {
+                let query = query(
+                    "MATCH (parent:Person), (child:Person)
+                 WHERE parent.id = $from_id AND child.id = $to_id
+                 CREATE (parent)-[:PARENT_OF]->(child)"
+                )
+                    .param("from_id", from_id.as_str())
+                    .param("to_id", to_id.as_str());
+
+                self.graph.execute(query).await?;
+            },
+            Relationship::Marriage { from_id, to_id, wedding_date, divorce_date } => {
+                let query = query(
+                    "MATCH (p1:Person), (p2:Person)
+                 WHERE p1.id = $from_id AND p2.id = $to_id
+                 CREATE (p1)-[:MARRIED_TO {
+                     wedding_date: $wedding_date,
+                     divorce_date: $divorce_date
+                 }]->(p2)"
+                )
+                    .param("from_id", from_id.as_str())
+                    .param("to_id", to_id.as_str())
+                    .param("wedding_date", wedding_date.map(|d| d.to_string()).unwrap_or_default())
+                    .param("divorce_date", divorce_date.map(|d| d.to_string()).unwrap_or_default());
+
+                self.graph.execute(query).await?;
+            }
+        }
+        Ok(())
+    }
+
+    // Hämta släktträd
+    pub async fn get_family_tree(&self, person_id: &str) -> Result<Vec<Person>> {
+        let query = query(
+            "MATCH (p:Person)-[*1..3]-(relative:Person)
+             WHERE p.id = $person_id
+             RETURN DISTINCT relative"
+        )
+        .param("person_id", person_id);
+
+        let mut result = self.graph.execute(query).await?;
+        let relatives = Vec::new();
+
+        while let Some(_row) = result.next().await? {
+            // TODO: Implementera konvertering från row till Person
+        }
+
+        Ok(relatives)
+    }
+
+    /// Imports data from a Cypher script file
+    pub async fn import_from_file(&self, file_path: &str) -> Result<()> {
+        let content = std::fs::read_to_string(file_path)?;
+        
+        // Split into individual statements
+        for statement in content.split(';') {
+            if !statement.trim().is_empty() {
+                self.graph.execute(query(statement)).await?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Imports data from a .dump file
+    pub async fn import_from_dump(&self, dump_path: &str) -> Result<()> {
+        let output = std::process::Command::new("neo4j-admin")
+            .arg("load")
+            .arg("--from")
+            .arg(dump_path)
+            .output()?;
+
+        if !output.status.success() {
+            return Err(neo4rs::Error::from(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                String::from_utf8_lossy(&output.stderr).to_string()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Imports person data from a CSV file
+    /// 
+    /// Expected CSV format:
+    /// first_name,middle_name,last_name,maiden_name,nick_name,full_name,born,deceased,info
+    pub async fn import_from_csv(&self, file_path: &str) -> Result<()> {
+        let file = File::open(file_path).map_err(|e| neo4rs::Error::from(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )))?;
+        let mut rdr = Reader::from_reader(file);
+
+        for result in rdr.records() {
+            let record = result.map_err(|e| neo4rs::Error::from(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )))?;
+
+            let query = query(
+                "CREATE (p:Person {
                 first_name: $first_name,
                 middle_name: $middle_name,
                 last_name: $last_name,
@@ -57,123 +197,83 @@ impl Neo4jRepository {
                 born: $born,
                 deceased: $deceased,
                 info: $info
-            }) RETURN id(p)"
-        )
-            .param("first_name", &person.first_name)
-            .param("middle_name", &person.middle_name)
-            .param("last_name", &person.last_name)
-            .param("maiden_name", &person.maiden_name)
-            .param("nick_name", &person.nick_name)
-            .param("full_name", &person.full_name)
-            .param("born", &person.born.map(|d| d.to_string()))
-            .param("deceased", &person.deceased.map(|d| d.to_string()))
-            .param("info", &person.info);
+            })"
+            )
+                .param("first_name", &record[0])
+                .param("middle_name", if record[1].is_empty() { "" } else { &record[1] })
+                .param("last_name", &record[2])
+                .param("maiden_name", if record[3].is_empty() { "" } else { &record[3] })
+                .param("nick_name", if record[4].is_empty() { "" } else { &record[4] })
+                .param("full_name", &record[5])
+                .param("born", if record[6].is_empty() { "" } else { &record[6] })
+                .param("deceased", if record[7].is_empty() { "" } else { &record[7] })
+                .param("info", if record[8].is_empty() { "" } else { &record[8] });
 
-        let mut result = self.graph.execute(query).await?;
-        let row = result.next().await?.unwrap();
-        let id: i64 = row.get("id(p)").unwrap();
-
-        Ok(id.to_string())
-    }
-
-    /// Retrieves a person by their ID
-    ///
-    /// # Arguments
-    /// * `id` - The unique identifier of the person
-    ///
-    /// # Returns
-    /// * `Result<Option<Person>, Box<dyn Error>>` - The person if found, None if not found, or error
-    pub async fn get_person(&self, id: &str) -> Result<Option<Person>> {
-        let query = query(
-            "MATCH (p:Person) WHERE id(p) = $id
-             RETURN p.first_name, p.middle_name, p.last_name, p.maiden_name,
-                    p.nick_name, p.full_name, p.born, p.deceased, p.info"
-        )
-            .param("id", id);
-
-        let mut result = self.graph.execute(query).await?;
-
-        if let Some(row) = result.next().await? {
-            Ok(Some(Person {
-                first_name: row.get("p.first_name").unwrap(),
-                middle_name: row.get("p.middle_name").unwrap(),
-                last_name: row.get("p.last_name").unwrap(),
-                maiden_name: row.get("p.maiden_name").unwrap(),
-                nick_name: row.get("p.nick_name").unwrap(),
-                full_name: row.get("p.full_name").unwrap(),
-                born: row.get::<String>("p.born")
-                    .map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").unwrap()),
-                deceased: row.get::<String>("p.deceased")
-                    .map(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").unwrap()),
-                info: row.get("p.info").unwrap(),
-            }))
-        } else {
-            Ok(None)
+            self.graph.execute(query).await?;
         }
-    }
 
-    /// Adds a relationship between two persons
-    ///
-    /// # Arguments
-    /// * `rel` - The relationship to be created (Parent or Marriage)
-    ///
-    /// # Returns
-    /// * `Result<(), Box<dyn Error>>` - Success or error
-    pub async fn add_relationship(&self, rel: &Relationship) -> Result<()> {
-        match rel {
-            Relationship::Parent { from_id, to_id } => {
-                let query = query(
-                    "MATCH (parent:Person), (child:Person)
-                     WHERE id(parent) = $from_id AND id(child) = $to_id
-                     CREATE (parent)-[:PARENT_OF]->(child)"
-                )
-                    .param("from_id", from_id)
-                    .param("to_id", to_id);
-
-                self.graph.execute(query).await?;
-            },
-            Relationship::Marriage { from_id, to_id, wedding_date, divorce_date } => {
-                let query = query(
-                    "MATCH (p1:Person), (p2:Person)
-                     WHERE id(p1) = $from_id AND id(p2) = $to_id
-                     CREATE (p1)-[:MARRIED_TO {
-                         wedding_date: $wedding_date,
-                         divorce_date: $divorce_date
-                     }]->(p2)"
-                )
-                    .param("from_id", from_id)
-                    .param("to_id", to_id)
-                    .param("wedding_date", wedding_date.map(|d| d.to_string()))
-                    .param("divorce_date", divorce_date.map(|d| d.to_string()));
-
-                self.graph.execute(query).await?;
-            }
-        }
         Ok(())
     }
 
-    /// Retrieves the family tree for a person
-    ///
-    /// # Arguments
-    /// * `person_id` - ID of the person whose family tree to retrieve
-    ///
-    /// # Returns
-    /// * `Result<Vec<Person>, Box<dyn Error>>` - List of related persons or error
-    pub async fn get_family_tree(&self, person_id: &str) -> Result<Vec<Person>> {
-        let query = query(
-            "MATCH (p:Person)-[*1..3]-(relative:Person)
-             WHERE id(p) = $person_id
-             RETURN DISTINCT relative"
-        )
-            .param("person_id", person_id);
+    /// Imports relationship data from a CSV file
+    /// 
+    /// Expected CSV format:
+    /// relationship_type,from_id,to_id,wedding_date,divorce_date
+    pub async fn import_relationships_from_csv(&self, file_path: &str) -> Result<()> {
+        let file = File::open(file_path).map_err(|e| neo4rs::Error::from(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string()
+        )))?;
+        let mut rdr = Reader::from_reader(file);
 
+        for result in rdr.records() {
+            let record = result.map_err(|e| neo4rs::Error::from(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string()
+            )))?;
+
+            match &record[0] {
+                "PARENT" => {
+                    let query = query(
+                        "MATCH (parent:Person), (child:Person)
+             WHERE id(parent) = $from_id AND id(child) = $to_id
+             CREATE (parent)-[:PARENT_OF]->(child)"
+                    )
+                        .param("from_id", &record[1])
+                        .param("to_id", &record[2]);
+
+                    self.graph.execute(query).await?;
+                },
+                "MARRIAGE" => {
+                    // ... resten av koden
+                },
+                _ => println!("Unknown relationship type: {}", record[0].to_string())
+            }
+        }
+        
+        Ok(())
+    }
+
+    pub async fn get_all_persons(&self) -> Result<Vec<Person>> {
+        let query = query("MATCH (p:Person) RETURN p");
         let mut result = self.graph.execute(query).await?;
-        let mut relatives = Vec::new();
+        let mut persons = Vec::new();
 
         while let Some(row) = result.next().await? {
-            // TODO: Implement conversion from row to Person
+            let person = Person {
+                first_name: row.get("p.firstName").unwrap_or_default(),
+                middle_name: row.get("p.middleName"),
+                last_name: row.get("p.lastName").unwrap_or_default(),
+                maiden_name: row.get("p.maidenName"),
+                nick_name: row.get("p.nickName"),
+                full_name: row.get("p.fullName").unwrap_or_default(),
+                born: row.get("p.born"),
+                deceased: row.get("p.deceased"),
+                info: row.get("p.info"),
+            };
+            persons.push(person);
         }
 
-        Ok(relatives)
+        Ok(persons)
     }
 }

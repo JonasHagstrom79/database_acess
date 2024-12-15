@@ -9,6 +9,16 @@ Cargo.lock
 /neo4j/import/
 /neo4j/plugins/
 
+# Database files
+/neo4j/data/*.json
+/neo4j/data/*.dump
+/neo4j/data/*.db
+/neo4j/data/databases/
+/neo4j/data/transactions/
+
+# Specific files
+neo4j/data/persons.json
+
 # Environment & Secrets
 .env
 .env.*
