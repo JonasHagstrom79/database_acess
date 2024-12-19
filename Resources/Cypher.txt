@@ -1,0 +1,22 @@
+#1. Import the nodes:
+CALL apoc.load.json("file:///import/persons.json") YIELD value
+WITH value WHERE value.type = "node"
+MERGE (p:Person {id: value.properties.id})
+SET p += value.properties
+
+#2. Import the relations:
+CALL apoc.load.json("file:///import/persons.json") YIELD value
+WITH value WHERE value.type = "relationship"
+MATCH (start:Person {id: value.start.properties.id})
+MATCH (end:Person {id: value.end.properties.id})
+CALL apoc.merge.relationship(start, value.label,
+    {type: value.properties.type},
+    value.properties,
+    end)
+YIELD rel
+RETURN count(*)
+
+#2. Show all nodes:
+MATCH (p:Person)
+RETURN p
+
